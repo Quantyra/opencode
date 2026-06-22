@@ -7,6 +7,7 @@ import os from "os"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { EventV2 } from "@opencode-ai/core/event"
+import { Flag } from "@opencode-ai/core/flag/flag"
 
 export const Event = {
   Asked: EventV2.define({ type: "permission.asked", schema: PermissionV1.Request.fields }),
@@ -93,6 +94,7 @@ export const layer = Layer.effect(
       }
 
       if (!needsAsk) return
+      if (Flag.OPENCODE_DANGEROUSLY_SKIP_PERMISSIONS) return
 
       const id = request.id ?? PermissionV1.ID.ascending()
       const info: PermissionV1.Request = {

@@ -11,6 +11,7 @@ import { Identifier } from "./util/identifier"
 import { Wildcard } from "./util/wildcard"
 import { PermissionSchema } from "./permission/schema"
 import { PermissionSaved } from "./permission/saved"
+import { Flag } from "./flag/flag"
 
 export { Effect, Rule, Ruleset } from "./permission/schema"
 type Effect = PermissionSchema.Effect
@@ -216,6 +217,9 @@ export const layer = Layer.effect(
     const ask = EffectRuntime.fn("PermissionV2.ask")(function* (input: AssertInput) {
       const result = yield* evaluateInput(input)
       const value = request(input)
+      if (result.effect === "ask" && Flag.OPENCODE_DANGEROUSLY_SKIP_PERMISSIONS) {
+        return { id: value.id, effect: "allow" as const }
+      }
       if (result.effect === "ask") yield* create(value, input.agent)
       return { id: value.id, effect: result.effect }
     })
@@ -229,7 +233,7 @@ export const layer = Layer.effect(
               rules: relevant(input, result.rules),
             })
           }
-          if (result.effect === "allow") return
+          if (result.effect === "allow" || Flag.OPENCODE_DANGEROUSLY_SKIP_PERMISSIONS) return
           const item = yield* create(request(input), input.agent)
           return yield* restore(Deferred.await(item.deferred)).pipe(
             EffectRuntime.ensuring(

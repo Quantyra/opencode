@@ -93,6 +93,22 @@ function assertion(input: Partial<PermissionV2.AssertInput> = {}) {
   } satisfies PermissionV2.AssertInput
 }
 
+function withDangerouslySkipPermissions<A, E, R>(effect: Effect.Effect<A, E, R>) {
+  return Effect.acquireUseRelease(
+    Effect.sync(() => {
+      const original = process.env.OPENCODE_DANGEROUSLY_SKIP_PERMISSIONS
+      process.env.OPENCODE_DANGEROUSLY_SKIP_PERMISSIONS = "1"
+      return original
+    }),
+    () => effect,
+    (original) =>
+      Effect.sync(() => {
+        if (original === undefined) delete process.env.OPENCODE_DANGEROUSLY_SKIP_PERMISSIONS
+        else process.env.OPENCODE_DANGEROUSLY_SKIP_PERMISSIONS = original
+      }),
+  )
+}
+
 function waitForRequest() {
   return Effect.gen(function* () {
     const service = yield* PermissionV2.Service
@@ -111,6 +127,30 @@ function waitForRequest() {
 }
 
 describe("PermissionV2", () => {
+  it.effect("dangerously skip permissions allows asks without queuing prompts", () =>
+    withDangerouslySkipPermissions(
+      Effect.gen(function* () {
+        yield* setup()
+        const service = yield* PermissionV2.Service
+        expect(yield* service.ask(assertion())).toEqual({ id: PermissionV2.ID.create("per_test"), effect: "allow" })
+        yield* service.assert(assertion({ id: PermissionV2.ID.create("per_assert") }))
+        expect(yield* service.list()).toEqual([])
+      }),
+    ),
+  )
+
+  it.effect("dangerously skip permissions still preserves explicit denies", () =>
+    withDangerouslySkipPermissions(
+      Effect.gen(function* () {
+        yield* setup([{ action: "read", resource: "*", effect: "deny" }])
+        const service = yield* PermissionV2.Service
+        expect(yield* service.ask(assertion())).toEqual({ id: PermissionV2.ID.create("per_test"), effect: "deny" })
+        const denied = yield* service.assert(assertion()).pipe(Effect.flip)
+        expect(denied).toBeInstanceOf(PermissionV2.DeniedError)
+      }),
+    ),
+  )
+
   it.effect("returns the evaluated effect and only queues prompts", () =>
     Effect.gen(function* () {
       yield* setup([{ action: "read", resource: "*", effect: "allow" }])
