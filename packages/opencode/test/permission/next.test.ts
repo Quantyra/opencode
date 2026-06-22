@@ -76,6 +76,22 @@ const list = () =>
     return yield* permission.list()
   })
 
+function withDangerouslySkipPermissions<A, E, R>(effect: Effect.Effect<A, E, R>) {
+  return Effect.acquireUseRelease(
+    Effect.sync(() => {
+      const original = process.env.OPENCODE_DANGEROUSLY_SKIP_PERMISSIONS
+      process.env.OPENCODE_DANGEROUSLY_SKIP_PERMISSIONS = "1"
+      return original
+    }),
+    () => effect,
+    (original) =>
+      Effect.sync(() => {
+        if (original === undefined) delete process.env.OPENCODE_DANGEROUSLY_SKIP_PERMISSIONS
+        else process.env.OPENCODE_DANGEROUSLY_SKIP_PERMISSIONS = original
+      }),
+  )
+}
+
 // fromConfig tests
 
 test("fromConfig - string value becomes wildcard rule", () => {
@@ -556,6 +572,47 @@ test("disabled - specific allow overrides wildcard deny", () => {
 })
 
 // ask tests
+
+it.instance(
+  "ask - dangerously skip permissions resolves ask without pending request",
+  () =>
+    withDangerouslySkipPermissions(
+      Effect.gen(function* () {
+        const result = yield* ask({
+          sessionID: SessionID.make("session_test"),
+          permission: "bash",
+          patterns: ["ls"],
+          metadata: {},
+          always: [],
+          ruleset: [{ permission: "bash", pattern: "*", action: "ask" }],
+        })
+        expect(result).toBeUndefined()
+        expect(yield* list()).toEqual([])
+      }),
+    ),
+  { git: true },
+)
+
+it.instance(
+  "ask - dangerously skip permissions preserves explicit deny",
+  () =>
+    withDangerouslySkipPermissions(
+      Effect.gen(function* () {
+        const err = yield* fail(
+          ask({
+            sessionID: SessionID.make("session_test"),
+            permission: "bash",
+            patterns: ["rm -rf /"],
+            metadata: {},
+            always: [],
+            ruleset: [{ permission: "bash", pattern: "*", action: "deny" }],
+          }),
+        )
+        expect(err).toBeInstanceOf(PermissionV1.DeniedError)
+      }),
+    ),
+  { git: true },
+)
 
 it.instance(
   "ask - resolves immediately when action is allow",
